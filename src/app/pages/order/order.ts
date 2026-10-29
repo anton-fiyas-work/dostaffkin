@@ -3,6 +3,7 @@ import { Header } from '../../header/header';
 import { DELIVERY_SIZES, DELIVERY_SPEEDS } from './order.config';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { UpperCasePipe } from '@angular/common';
+import { DeliveryApi } from '../../services/delivery-api';
 declare var ymaps: any;
 
 @Component({
@@ -24,8 +25,9 @@ export class Order {
   public orderId: any = signal<string | null>(null);
   public calculationResult: any = signal<any>(null);
   public isOrderSubmitted: any = signal(false);
+  public isCalculating = signal(false);
 
-  constructor(private formBuilder: FormBuilder) {
+  constructor(private formBuilder: FormBuilder, private deliveryApi: DeliveryApi) {
     this.routeForm = this.formBuilder.group({
       from: ['', Validators.required],
       to: ['', Validators.required],
@@ -70,60 +72,67 @@ export class Order {
       return;
     }
 
+    this.isCalculating.set(true);
     const { from, to, size, speed } = this.routeForm.getRawValue();
 
-    if (this.mapRoute) {
-      this.map.geoObjects.remove(this.mapRoute);
-      this.mapRoute = null;
-    }
-
-    this.mapRoute = new ymaps.multiRouter.MultiRoute(
-      { referencePoints: [from, to] },
-      { boundsAutoApply: false }
-    );
-    this.map.geoObjects.add(this.mapRoute);
-
-    this.mapRoute.model.events.add('requestsuccess', () => {
-      try {
-        const activeRoute = this.mapRoute.getActiveRoute();
-        if (!activeRoute) {
-          return this.failedCalculation();
-        }
-
-        const km = activeRoute.properties.get('distance').value / 1000;
-        const sizeValue = size ?? '';
-        const sizeConfig = this.sizes.find((item) => item.value === sizeValue);
-        if (!sizeConfig) {
-          return this.failedCalculation();
-        }
-        let total = Math.max(sizeConfig.min, Math.ceil(km * sizeConfig.rate));
-        let duration = Math.min(30, 1 + Math.ceil(km / 80));
-
-        if (speed === 'fast') {
-          total = Math.ceil(total * 1.15);
-          duration = Math.ceil(duration - (duration * 0.30));
-        }
-
-        this.calculationResult.set({
-          from,
-          to,
-          size,
-          distance: km.toFixed(1),
-          duration,
-          rate: sizeConfig.rate,
-          total,
-          speed
-        });
-      } catch (err) {
-        this.failedCalculation();
+    try {
+      if (this.mapRoute) {
+        this.map.geoObjects.remove(this.mapRoute);
+        this.mapRoute = null;
       }
-    });
 
-    this.mapRoute.model.events.add('requestfail', () => this.failedCalculation());
+      this.mapRoute = new ymaps.multiRouter.MultiRoute(
+        { referencePoints: [from, to] },
+        { boundsAutoApply: false }
+      );
+      this.map.geoObjects.add(this.mapRoute);
+
+      this.mapRoute.model.events.add('requestsuccess', () => {
+        try {
+          const activeRoute = this.mapRoute.getActiveRoute();
+          if (!activeRoute) {
+            return this.failedCalculation();
+          }
+
+          const km = activeRoute.properties.get('distance').value / 1000;
+          const sizeValue = size ?? '';
+          const sizeConfig = this.sizes.find((item) => item.value === sizeValue);
+          if (!sizeConfig) {
+            return this.failedCalculation();
+          }
+          let total = Math.max(sizeConfig.min, Math.ceil(km * sizeConfig.rate));
+          let duration = Math.min(30, 1 + Math.ceil(km / 80));
+
+          if (speed === 'fast') {
+            total = Math.ceil(total * 1.15);
+            duration = Math.ceil(duration - (duration * 0.30));
+          }
+
+          this.calculationResult.set({
+            from,
+            to,
+            size,
+            distance: km.toFixed(1),
+            duration,
+            rate: sizeConfig.rate,
+            total,
+            speed
+          });
+          this.isCalculating.set(false);
+        } catch {
+          this.failedCalculation();
+        }
+      });
+
+      this.mapRoute.model.events.add('requestfail', () => this.failedCalculation());
+    } catch {
+      this.failedCalculation();
+    }
   }
 
 
   private failedCalculation() {
+    this.isCalculating.set(false);
     this.calculationResult.set(null);
     alert('Не удалось построить маршрут. Проверьте адреса и выбранные параметры.');
   }
@@ -150,7 +159,16 @@ export class Order {
       createdAt: new Date().toISOString()
     };
 
-    console.log(payload);
-    this.orderId.set(1);
+    this.deliveryApi.createDelivery(payload).subscribe((response) => {
+      if ('error' in response) {
+        alert(response.error);
+        return;
+      }
+
+      this.routeForm.disable();
+      this.orderForm.disable();
+      this.orderId.set(response.id);
+      this.isOrderSubmitted.set(true);
+    });
   }
 }

@@ -135,6 +135,32 @@
     margin-bottom: 13px;
 }
 
+.calculation-loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(2px);
+}
+
+.calculation-spinner {
+    width: 30px;
+    height: 30px;
+    border: 3px solid #F28C28;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: calculation-spin 0.8s linear infinite;
+}
+
+@keyframes calculation-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .main-result-lines {
     gap: 8px;
     display: flex;
